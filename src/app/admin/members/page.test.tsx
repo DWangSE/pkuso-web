@@ -3,6 +3,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import MembersPage from "./page";
+import type { ProfileRow } from "@/types/database";
 
 // 固定测试时区为 UTC+8：旧实现 parseLocalISO(...).toISOString().slice(0,10) 在
 // UTC+8 下会把凌晨的日期退回前一天（导出文件名/sheet 名日期偏移一天的回归）。
@@ -57,6 +58,9 @@ const mocks = vi.hoisted(() => {
     },
   ];
 
+  // 花名册成员（useProfiles 返回；花名册 tab 用例动态注入）
+  const profiles: ProfileRow[] = [];
+
   // 导出全部：一次 .in 查询返回的全部出勤记录（覆盖两个排练；姓名/邮箱由 profiles_roster 补查）
   const mockAllAttendanceRows = [
     {
@@ -92,10 +96,11 @@ const mocks = vi.hoisted(() => {
   ];
 
   // profiles_roster 补查返回（视图无 FK 无法 embed；admin 经 is_admin 拿原值）
+  // is_in_orchestra 三态覆盖：在团 / 不在团 / 未设置（—）
   const mockRosterRows = [
-    { id: "u1", full_name: "张小三", email: "zhangsan@example.com" },
-    { id: "u2", full_name: "李小四", email: "lisi@example.com" },
-    { id: "u3", full_name: "王小五", email: "wangwu@example.com" },
+    { id: "u1", full_name: "张小三", email: "zhangsan@example.com", is_in_orchestra: true },
+    { id: "u2", full_name: "李小四", email: "lisi@example.com", is_in_orchestra: false },
+    { id: "u3", full_name: "王小五", email: "wangwu@example.com", is_in_orchestra: null },
   ];
 
   // supabase 链式 mock：select/eq/in/order/insert 返回链自身，then 由 beforeEach 按查询类型配置返回值
@@ -132,6 +137,7 @@ const mocks = vi.hoisted(() => {
     mockAttendanceRows,
     mockAllAttendanceRows,
     mockSingleAttendanceRows,
+    profiles,
     mockRosterRows,
     mockSelect,
     mockEq,
@@ -158,10 +164,10 @@ vi.mock("@/hooks/useRehearsals", () => ({
   }),
 }));
 
-// Mock useProfiles（花名册 tab）
+// Mock useProfiles（花名册 tab）：data 引用不变、内容可变，测试内动态注入
 vi.mock("@/hooks/useProfiles", () => ({
   useProfiles: () => ({
-    data: [],
+    data: mocks.profiles,
     loading: false,
     error: null,
     saving: false,
@@ -547,8 +553,8 @@ describe("AdminMembersPage 组件（排练考勤 tab）", () => {
     });
     expect(mocks.mockFrom).toHaveBeenCalledWith("profiles_roster");
     expect(mocks.mockAoaToSheet).toHaveBeenCalledWith([
-      ["姓名", "邮箱", "出勤情况", "签到时间"],
-      ["张小三", "zhangsan@example.com", "出席", "2026-08-20T19:05:00"],
+      ["姓名", "邮箱", "出勤情况", "在团情况", "签到时间"],
+      ["张小三", "zhangsan@example.com", "出席", "在团", "2026-08-20T19:05:00"],
     ]);
   });
 
@@ -559,16 +565,16 @@ describe("AdminMembersPage 组件（排练考勤 tab）", () => {
     await waitFor(() => {
       expect(mocks.mockWriteFile).toHaveBeenCalled();
     });
-    // 排练按开始时间倒序：第一张 sheet（莫扎特，rehearsal_id=2）一行：王小五 迟到
+    // 排练按开始时间倒序：第一张 sheet（莫扎特，rehearsal_id=2）一行：王小五 迟到（未设置在团 → —）
     expect(mocks.mockAoaToSheet.mock.calls[0][0]).toEqual([
-      ["姓名", "邮箱", "出勤情况", "签到时间"],
-      ["王小五", "wangwu@example.com", "迟到", "2026-08-21T14:10:00"],
+      ["姓名", "邮箱", "出勤情况", "在团情况", "签到时间"],
+      ["王小五", "wangwu@example.com", "迟到", "—", "2026-08-21T14:10:00"],
     ]);
-    // 第二张 sheet（贝多芬，rehearsal_id=1）两行：张小三/李小四 带邮箱
+    // 第二张 sheet（贝多芬，rehearsal_id=1）两行：张小三(在团)/李小四(不在团)
     expect(mocks.mockAoaToSheet.mock.calls[1][0]).toEqual([
-      ["姓名", "邮箱", "出勤情况", "签到时间"],
-      ["张小三", "zhangsan@example.com", "缺席", "—"],
-      ["李小四", "lisi@example.com", "出席", "2026-08-20T19:05:00"],
+      ["姓名", "邮箱", "出勤情况", "在团情况", "签到时间"],
+      ["张小三", "zhangsan@example.com", "缺席", "在团", "—"],
+      ["李小四", "lisi@example.com", "出席", "不在团", "2026-08-20T19:05:00"],
     ]);
   });
 
@@ -688,5 +694,66 @@ describe("AdminMembersPage 组件（排练考勤 tab）", () => {
         "考勤记录_2026-08-20_2026-08-21.xlsx",
       );
     });
+  });
+});
+
+// ============================================================
+// 花名册 tab：入团时间行尾在团情况后缀（true → 团员 / false → 团友 / NULL → 无后缀）
+// ============================================================
+describe("AdminMembersPage 花名册 tab（在团情况后缀）", () => {
+  /** 构造花名册成员（字段齐全，满足 ProfileRow） */
+  function makeProfile(overrides: Partial<ProfileRow> = {}): ProfileRow {
+    return {
+      id: "m1",
+      college: "信息科学技术学院",
+      created_at: null,
+      email: "zhangsan@example.com",
+      full_name: "张三",
+      hide_email: false,
+      hide_join_date: false,
+      hide_phone: false,
+      hide_college: false,
+      session_started_at: null,
+      session_token: null,
+      wechat_openid: null,
+      instrument: "第一小提琴",
+      is_section_leader: false,
+      is_in_orchestra: true,
+      join_date: "2024-09-01",
+      phone_number: "13800138000",
+      role: "member",
+      status: "approved",
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.profiles.splice(0, mocks.profiles.length);
+  });
+
+  it("在团成员：入团时间后缀「团员」", () => {
+    mocks.profiles.push(makeProfile({ is_in_orchestra: true }));
+    render(<MembersPage />);
+    fireEvent.click(screen.getByRole("button", { name: "全团成员" }));
+    expect(screen.getByText(/入团时间：2024-09-01 团员/)).toBeInTheDocument();
+  });
+
+  it("不在团成员：入团时间后缀「团友」", () => {
+    mocks.profiles.push(
+      makeProfile({ id: "m2", full_name: "李四", is_in_orchestra: false, join_date: "2022秋" }),
+    );
+    render(<MembersPage />);
+    fireEvent.click(screen.getByRole("button", { name: "全团成员" }));
+    expect(screen.getByText(/入团时间：2022秋 团友/)).toBeInTheDocument();
+  });
+
+  it("未设置（NULL）：无后缀", () => {
+    mocks.profiles.push(makeProfile({ id: "m3", full_name: "王五", is_in_orchestra: null }));
+    render(<MembersPage />);
+    fireEvent.click(screen.getByRole("button", { name: "全团成员" }));
+    const line = screen.getByText(/入团时间：2024-09-01/);
+    expect(line.textContent).not.toContain("团员");
+    expect(line.textContent).not.toContain("团友");
   });
 });
