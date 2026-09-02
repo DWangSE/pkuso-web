@@ -108,7 +108,7 @@ export async function POST(request: Request) {
       }
       fullNames.add(fullName);
 
-      // 解析声部：支持数字序号或直接名称/别名
+      // 解析声部：支持数字序号或直接名称/别名，无法识别时 fallback 为"其他"
       let instrumentCode: number | undefined;
       let instrumentName: string | undefined;
       for (const mapping of fieldMapping) {
@@ -125,16 +125,17 @@ export async function POST(request: Request) {
             instrumentCode = numValue;
             instrumentName = instrumentMap[String(instrumentCode)];
             if (!instrumentName) {
-              errors.push(`第 ${rowNum} 行：声部序号 ${instrumentCode} 无法映射`);
+              // 序号无法映射，fallback 为"其他"
+              instrumentName = "其他";
             }
           } else {
             // 非数字，尝试作为声部名称/别名匹配
             const resolved = resolveInstrumentName(rawValue);
             if (resolved !== rawValue || INSTRUMENT_ALIAS_MAP[rawValue]) {
-              // 匹配成功
               instrumentName = resolved;
             } else {
-              errors.push(`第 ${rowNum} 行：声部"${rawValue}"无法识别（请输入序号或有效声部名称）`);
+              // 无法识别，fallback 为"其他"
+              instrumentName = "其他";
             }
           }
           break;
