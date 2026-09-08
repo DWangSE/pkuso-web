@@ -203,11 +203,11 @@ SMTP 测试用 Mailpit 替代 Ethereal（Ethereal 公网 SMTP 在北大校园网
 
 ### 三个仓库的职责划分
 
-| 仓库 | 职责 | 事实来源 |
-|------|------|---------|
-| `pkuso-backend` | 数据库 schema、Edge Functions、TypeScript 类型定义 | **唯一后端事实来源** |
-| `pkuso-mp` | 微信小程序（成员端） | 消费 backend 产生的类型 |
-| `pkuso-web` | 管理端 Web 应用 | 消费 backend 产生的类型 |
+| 仓库            | 职责                                               | 事实来源                |
+| --------------- | -------------------------------------------------- | ----------------------- |
+| `pkuso-backend` | 数据库 schema、Edge Functions、TypeScript 类型定义 | **唯一后端事实来源**    |
+| `pkuso-mp`      | 微信小程序（成员端）                               | 消费 backend 产生的类型 |
+| `pkuso-web`     | 管理端 Web 应用                                    | 消费 backend 产生的类型 |
 
 ### MCP 操作审计
 
