@@ -6,15 +6,21 @@ interface AdminPageHeaderState {
   title: string;
   headerRight: React.ReactNode;
   onBack?: () => void;
+  headerLoading: boolean;
+  hideBackButton: boolean;
 }
 
 interface AdminPageHeaderContextValue {
   title: string;
   headerRight: React.ReactNode;
   onBack?: () => void;
+  headerLoading: boolean;
+  hideBackButton: boolean;
   setTitle: (title: string) => void;
   setHeaderRight: (node: React.ReactNode) => void;
   setOnBack: (handler: () => void) => void;
+  setHeaderLoading: (loading: boolean) => void;
+  setHideBackButton: (hide: boolean) => void;
   resetHeader: () => void;
 }
 
@@ -31,10 +37,12 @@ export function AdminPageHeaderProvider({ children }: { children: React.ReactNod
     title: "",
     headerRight: null,
     onBack: undefined,
+    headerLoading: false,
+    hideBackButton: false,
   });
 
   const setTitle = React.useCallback((title: string) => {
-    setState((prev) => ({ ...prev, title }));
+    setState((prev) => ({ ...prev, title, hideBackButton: false, headerRight: null }));
   }, []);
 
   const setHeaderRight = React.useCallback((node: React.ReactNode) => {
@@ -45,8 +53,22 @@ export function AdminPageHeaderProvider({ children }: { children: React.ReactNod
     setState((prev) => ({ ...prev, onBack: handler }));
   }, []);
 
+  const setHeaderLoading = React.useCallback((loading: boolean) => {
+    setState((prev) => ({ ...prev, headerLoading: loading }));
+  }, []);
+
+  const setHideBackButton = React.useCallback((hide: boolean) => {
+    setState((prev) => ({ ...prev, hideBackButton: hide }));
+  }, []);
+
   const resetHeader = React.useCallback(() => {
-    setState({ title: "", headerRight: null, onBack: undefined });
+    setState({
+      title: "",
+      headerRight: null,
+      onBack: undefined,
+      headerLoading: false,
+      hideBackButton: false,
+    });
   }, []);
 
   return (
@@ -55,9 +77,13 @@ export function AdminPageHeaderProvider({ children }: { children: React.ReactNod
         title: state.title,
         headerRight: state.headerRight,
         onBack: state.onBack,
+        headerLoading: state.headerLoading,
+        hideBackButton: state.hideBackButton,
         setTitle,
         setHeaderRight,
         setOnBack,
+        setHeaderLoading,
+        setHideBackButton,
         resetHeader,
       }}
     >

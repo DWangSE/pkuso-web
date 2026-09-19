@@ -30,12 +30,13 @@ interface FeatureItem {
 export default function AdminHomePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { resetHeader } = useAdminPageHeader();
+  const { setTitle, setHeaderLoading, setHideBackButton } = useAdminPageHeader();
 
-  // 首页重置页顶状态（清除子页面残留的标题/按钮）
+  // 首页设置标题 + 隐藏返回按钮
   React.useEffect(() => {
-    resetHeader();
-  }, [resetHeader]);
+    setTitle("导航栏");
+    setHideBackButton(true);
+  }, [setTitle, setHideBackButton]);
 
   // 兼容旧深链：/admin?tab=leave -> 重定向到 /admin/leave
   React.useEffect(() => {
@@ -60,7 +61,6 @@ export default function AdminHomePage() {
 
   const [pendingApprovalCount, setPendingApprovalCount] = React.useState(0);
   const [pendingLeaveCount, setPendingLeaveCount] = React.useState(0);
-  const [loadingBadges, setLoadingBadges] = React.useState(true);
 
   // 并行获取徽章计数
   React.useEffect(() => {
@@ -80,17 +80,20 @@ export default function AdminHomePage() {
         if (mounted) {
           setPendingApprovalCount(approvalCount ?? 0);
           setPendingLeaveCount(leaveCount ?? 0);
-          setLoadingBadges(false);
+          setHeaderLoading(false);
         }
       } catch {
-        if (mounted) setLoadingBadges(false);
+        if (mounted) {
+          setHeaderLoading(false);
+        }
       }
     }
+    setHeaderLoading(true);
     fetchBadges();
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [setHeaderLoading]);
 
   const features: FeatureItem[] = [
     {
@@ -114,12 +117,6 @@ export default function AdminHomePage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col space-y-4">
-      {loadingBadges && (
-        <div className="mb-2 flex h-8 items-center justify-center text-xs text-text-subtle">
-          加载徽章计数…
-        </div>
-      )}
-
       <div className="flex-1 min-h-0 overflow-y-auto">
         <div className="grid grid-cols-2 gap-3">
           {features.map((f) => (

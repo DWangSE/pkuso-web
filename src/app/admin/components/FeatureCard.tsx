@@ -31,15 +31,15 @@ export function FeatureCard({
       prefetch={false}
       className="group flex items-center gap-4 rounded-2xl border border-border bg-card p-3 transition-colors hover:bg-muted hover:border-border/50"
     >
-      <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
         <Icon className="h-5 w-5" />
-        {displayBadge && (
-          <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-danger px-1.5 text-[10px] font-medium text-danger-foreground">
-            {displayBadge}
-          </span>
-        )}
       </div>
-      <span className="text-label font-medium text-text truncate">{title}</span>
+      <span className="flex-1 min-w-0 text-label font-medium text-text truncate">{title}</span>
+      {displayBadge && (
+        <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-danger px-2 text-[11px] font-medium text-danger-foreground ml-2">
+          {displayBadge}
+        </span>
+      )}
     </Link>
   );
 }

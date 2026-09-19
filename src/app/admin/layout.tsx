@@ -113,7 +113,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
 function AdminHeader() {
   const router = useRouter();
-  const { title, headerRight, onBack } = useAdminPageHeader();
+  const { title, headerRight, onBack, headerLoading, hideBackButton } = useAdminPageHeader();
   const hasTitle = title.length > 0;
 
   const handleBack = React.useCallback(() => {
@@ -126,7 +126,7 @@ function AdminHeader() {
 
   return (
     <header className="flex items-center px-4 py-3 border-b border-border bg-surface/95 backdrop-blur sticky top-0 z-10">
-      {hasTitle && (
+      {hasTitle && !hideBackButton ? (
         <button
           type="button"
           onClick={handleBack}
@@ -135,10 +135,20 @@ function AdminHeader() {
         >
           <ArrowLeft className="h-4 w-4 text-text" />
         </button>
-      )}
+      ) : hasTitle && hideBackButton && headerLoading ? (
+        <div
+          className="animate-spin rounded-full h-5 w-5 border-2 border-primary border-t-transparent shrink-0"
+          aria-label="加载中"
+        />
+      ) : !hasTitle && headerLoading ? (
+        <div
+          className="animate-spin rounded-full h-5 w-5 border-2 border-primary border-t-transparent shrink-0"
+          aria-label="加载中"
+        />
+      ) : null}
       {hasTitle && <h1 className="ml-2 text-lg font-semibold text-text">{title}</h1>}
       <div className="ml-auto">
-        {hasTitle ? (
+        {hasTitle && !hideBackButton ? (
           headerRight
         ) : (
           <button
