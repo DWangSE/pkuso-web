@@ -51,10 +51,10 @@ describe("AdminHomePage", () => {
     });
   });
 
-  it("渲染 13 个功能卡片网格", () => {
+  it("渲染 12 个功能卡片网格", () => {
     renderWithProviders(<AdminHomePage />);
 
-    // Check all 13 cards are present
+    // Check all 12 cards are present
     const cards = [
       "入团审批",
       "请假审批",
@@ -64,7 +64,6 @@ describe("AdminHomePage", () => {
       "考勤管理",
       "成员花名册",
       "社区管理",
-      "邀请码管理",
       "系统通知",
       "反馈查看",
       "邮件签名",
