@@ -5,6 +5,7 @@ import React from "react";
 import AdminPostDetailPage from "./page";
 import { usePosts } from "@/hooks/usePosts";
 import { formatDateTimeInChina } from "@/lib/date-utils";
+import { AdminPageHeaderProvider } from "@/context/admin-page-header-context";
 
 const mocks = vi.hoisted(() => {
   const insert = vi.fn().mockResolvedValue({ error: null });
@@ -13,7 +14,19 @@ const mocks = vi.hoisted(() => {
   const setAdminId = (id: string) => {
     adminId = id;
   };
-  return { routerPush: vi.fn(), insert, mockUseUser, setAdminId };
+  return {
+    insert,
+    mockUseUser,
+    setAdminId,
+    router: {
+      push: vi.fn(),
+      replace: vi.fn(),
+      refresh: vi.fn(),
+      back: vi.fn(),
+      forward: vi.fn(),
+      prefetch: vi.fn(),
+    },
+  };
 });
 
 vi.mock("@/lib/supabase", () => ({
@@ -29,12 +42,7 @@ vi.mock("@/hooks/usePosts", () => ({
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({
-    push: mocks.routerPush,
-    replace: vi.fn(),
-    refresh: vi.fn(),
-    back: vi.fn(),
-  }),
+  useRouter: () => mocks.router,
   useParams: () => ({ id: "post-1" }),
 }));
 
@@ -92,7 +100,11 @@ function renderDetail(
     remove,
     uploadImage: vi.fn(),
   }));
-  render(<AdminPostDetailPage />);
+  render(
+    <AdminPageHeaderProvider>
+      <AdminPostDetailPage />
+    </AdminPageHeaderProvider>,
+  );
   return { update, remove };
 }
 
@@ -101,7 +113,7 @@ describe("AdminPostDetailPage 公告详情（Issue #179：Modal→页面）", ()
   let alertSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
-    mocks.routerPush.mockClear();
+    vi.clearAllMocks();
     mocks.insert.mockClear();
     mocks.setAdminId("admin-1");
     vi.clearAllMocks();
@@ -154,7 +166,7 @@ describe("AdminPostDetailPage 公告详情（Issue #179：Modal→页面）", ()
       expect(remove).toHaveBeenCalledWith("post-1");
     });
     await waitFor(() => {
-      expect(mocks.routerPush).toHaveBeenCalledWith("/admin/community");
+      expect(mocks.router.push).toHaveBeenCalledWith("/admin/community");
     });
   });
 
@@ -294,7 +306,11 @@ describe("AdminPostDetailPage 公告详情（Issue #179：Modal→页面）", ()
       remove: vi.fn(),
       uploadImage: vi.fn(),
     }));
-    render(<AdminPostDetailPage />);
+    render(
+      <AdminPageHeaderProvider>
+        <AdminPostDetailPage />
+      </AdminPageHeaderProvider>,
+    );
     expect(screen.getByText("未找到该公告")).toBeTruthy();
     expect(mockUsePosts).toHaveBeenCalledWith({
       includeLocked: true,

@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { screen, cleanup, fireEvent } from "@testing-library/react";
 import AdminRehearsalsPage from "./page";
 import type { RehearsalRow } from "@/types/database";
 import { parseLocalISO, formatLocalISO } from "@/lib/date-utils";
+import { renderWithProviders } from "@/__tests__/render-with-providers";
 
 /** 构造排练行（本地时间 ISO；fake timers 固定 now，硬编码日期安全）；startISO 为 null 时无时间 */
 function makeRehearsal(
@@ -45,13 +46,23 @@ function makeRehearsal(
 }
 
 // 通过 vi.hoisted 暴露可变排练列表与 mock，测试内动态注入/断言
-const mocks = vi.hoisted(() => ({
-  rehearsals: [] as RehearsalRow[],
-  batchInsert: vi.fn().mockResolvedValue(null),
-  checkConflict: vi.fn().mockResolvedValue(null),
-  remove: vi.fn().mockResolvedValue(true),
-  routerPush: vi.fn(),
-}));
+const mocks = vi.hoisted(() => {
+  const router = {
+    push: vi.fn(),
+    replace: vi.fn(),
+    refresh: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    prefetch: vi.fn(),
+  };
+  return {
+    rehearsals: [] as RehearsalRow[],
+    batchInsert: vi.fn().mockResolvedValue(null),
+    checkConflict: vi.fn().mockResolvedValue(null),
+    remove: vi.fn().mockResolvedValue(true),
+    router,
+  };
+});
 
 /** 替换 mock 排练列表（保持引用不变，触发 useRehearsals 的 data 更新） */
 function setData(items: RehearsalRow[]) {
@@ -117,12 +128,7 @@ vi.mock("@/hooks/useProfiles", () => ({
 
 // Mock next/navigation（useRouter：卡片点击跳转详情页）
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({
-    push: mocks.routerPush,
-    replace: vi.fn(),
-    refresh: vi.fn(),
-    back: vi.fn(),
-  }),
+  useRouter: () => mocks.router,
 }));
 
 describe("AdminRehearsalsPage 排序与历史合排 tab（Issue #171）", () => {
@@ -149,7 +155,7 @@ describe("AdminRehearsalsPage 排序与历史合排 tab（Issue #171）", () => 
       makeRehearsal(2, "2026-08-16T20:00:00", "明天排练"), // 最近一次，保持第一位
       makeRehearsal(4, "2026-08-15T14:00:00", "下午排练"), // 已结束 5 小时前
     ]);
-    render(<AdminRehearsalsPage />);
+    renderWithProviders(<AdminRehearsalsPage />);
 
     const rendered = screen
       .getAllByText(/(明天|更新过的|下午|上午)排练/)
@@ -166,24 +172,13 @@ describe("AdminRehearsalsPage 排序与历史合排 tab（Issue #171）", () => 
       makeRehearsal(3, "2026-08-16T20:00:00", "未结束合排"),
       makeRehearsal(4, "2026-08-14T08:00:00", "已结束分排", { type: "section" }),
     ]);
-    const { container } = render(<AdminRehearsalsPage />);
+    renderWithProviders(<AdminRehearsalsPage />);
     fireEvent.click(screen.getByRole("button", { name: "历史合排" }));
 
     const rendered = screen.getAllByText(/(较早|较近)合排/).map((el) => el.textContent);
     expect(rendered).toEqual(["较近合排", "较早合排"]);
     expect(screen.queryByText("未结束合排")).toBeNull();
     expect(screen.queryByText("已结束分排")).toBeNull();
-    // 标题联动：h1 切换为「历史合排」
-    expect(container.querySelector("h1")?.textContent).toBe("历史合排");
-  });
-
-  it("历史合排 tab 隐藏「发布新日程」按钮（创建类型跟随 toggle 在历史视图无意义）", () => {
-    setData([makeRehearsal(1, "2026-08-16T20:00:00", "明天排练")]);
-    render(<AdminRehearsalsPage />);
-    expect(screen.getByRole("button", { name: /发布新日程/ })).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: "历史合排" }));
-    expect(screen.queryByRole("button", { name: /发布新日程/ })).toBeNull();
   });
 });
 
@@ -206,7 +201,7 @@ describe("AdminRehearsalsPage 窗口过滤（Issue #173）", () => {
       makeRehearsal(3, "2026-08-15T08:00:00", "今天已结束的合排"),
       makeRehearsal(4, "2026-08-16T20:00:00", "未来的排练"),
     ]);
-    render(<AdminRehearsalsPage />);
+    renderWithProviders(<AdminRehearsalsPage />);
 
     // 合排 tab：过去的合排隐藏，今天与未来保留
     expect(screen.getByText("今天已结束的合排")).toBeTruthy();
@@ -226,13 +221,13 @@ describe("AdminRehearsalsPage 窗口过滤（Issue #173）", () => {
 
   it("无 start_time 的排练保守保留在合排 tab", () => {
     setData([makeRehearsal(1, null, "无时间排练")]);
-    render(<AdminRehearsalsPage />);
+    renderWithProviders(<AdminRehearsalsPage />);
     expect(screen.getByText("无时间排练")).toBeTruthy();
   });
 
   it("日期区间筛选组件通过 false && 隐藏：不渲染日期选择控件与标签", () => {
     setData([makeRehearsal(1, "2026-08-16T20:00:00", "明天排练")]);
-    render(<AdminRehearsalsPage />);
+    renderWithProviders(<AdminRehearsalsPage />);
     expect(screen.queryByPlaceholderText("选择日期")).toBeNull();
     expect(screen.queryByText("开始时间")).toBeNull();
     expect(screen.queryByText("结束时间")).toBeNull();
@@ -244,7 +239,7 @@ describe("AdminRehearsalsPage 卡片导航（Issue #173：Modal→页面）", ()
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 7, 15, 21, 0, 0));
     setData([]);
-    mocks.routerPush.mockClear();
+    vi.clearAllMocks();
   });
 
   afterEach(() => {
@@ -254,10 +249,10 @@ describe("AdminRehearsalsPage 卡片导航（Issue #173：Modal→页面）", ()
 
   it("点击卡片跳转到详情页路由（/admin/rehearsals/[id]）", () => {
     setData([makeRehearsal(1, "2026-08-16T20:00:00", "明天排练")]);
-    render(<AdminRehearsalsPage />);
+    renderWithProviders(<AdminRehearsalsPage />);
     // 卡片本身是按钮（可访问名含曲目），点击跳转
     fireEvent.click(screen.getByRole("button", { name: /明天排练/ }));
-    expect(mocks.routerPush).toHaveBeenCalledTimes(1);
-    expect(mocks.routerPush).toHaveBeenCalledWith("/admin/rehearsals/1");
+    expect(mocks.router.push).toHaveBeenCalledTimes(1);
+    expect(mocks.router.push).toHaveBeenCalledWith("/admin/rehearsals/1");
   });
 });

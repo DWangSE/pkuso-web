@@ -5,6 +5,7 @@ import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/re
 import AdminRehearsalDetailPage from "./page";
 import type { RehearsalRow } from "@/types/database";
 import { parseLocalISO, formatLocalISO } from "@/lib/date-utils";
+import { AdminPageHeaderProvider } from "@/context/admin-page-header-context";
 
 function makeRehearsal(id: number, startISO: string | null, repertoire: string): RehearsalRow {
   const end =
@@ -35,7 +36,14 @@ function makeRehearsal(id: number, startISO: string | null, repertoire: string):
 const mocks = vi.hoisted(() => ({
   rehearsals: [] as RehearsalRow[],
   remove: vi.fn().mockResolvedValue(true),
-  routerPush: vi.fn(),
+  router: {
+    push: vi.fn(),
+    replace: vi.fn(),
+    refresh: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    prefetch: vi.fn(),
+  },
 }));
 
 function setData(items: RehearsalRow[]) {
@@ -56,19 +64,14 @@ vi.mock("@/hooks/useRehearsals", () => ({
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({
-    push: mocks.routerPush,
-    replace: vi.fn(),
-    refresh: vi.fn(),
-    back: vi.fn(),
-  }),
+  useRouter: () => mocks.router,
   useParams: () => ({ id: "1" }),
 }));
 
 describe("AdminRehearsalDetailPage（Issue #173：详情页路由）", () => {
   beforeEach(() => {
     mocks.remove.mockClear();
-    mocks.routerPush.mockClear();
+    vi.clearAllMocks();
     setData([]);
   });
 
@@ -79,7 +82,11 @@ describe("AdminRehearsalDetailPage（Issue #173：详情页路由）", () => {
 
   it("渲染排练明细：曲目、地点", () => {
     setData([makeRehearsal(1, "2026-08-16T20:00:00", "明天排练")]);
-    render(<AdminRehearsalDetailPage />);
+    render(
+      <AdminPageHeaderProvider>
+        <AdminRehearsalDetailPage />
+      </AdminPageHeaderProvider>,
+    );
     expect(screen.getByText("明天排练")).toBeTruthy();
     expect(screen.getByText("排练厅")).toBeTruthy();
   });
@@ -87,17 +94,25 @@ describe("AdminRehearsalDetailPage（Issue #173：详情页路由）", () => {
   it("删除流：confirm 通过 → remove(1) 并跳回列表", async () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     setData([makeRehearsal(1, "2026-08-16T20:00:00", "明天排练")]);
-    render(<AdminRehearsalDetailPage />);
+    render(
+      <AdminPageHeaderProvider>
+        <AdminRehearsalDetailPage />
+      </AdminPageHeaderProvider>,
+    );
     fireEvent.click(screen.getByRole("button", { name: "删除" }));
     expect(confirmSpy).toHaveBeenCalledWith("确定删除该排练？");
     expect(mocks.remove).toHaveBeenCalledWith(1);
-    await waitFor(() => expect(mocks.routerPush).toHaveBeenCalledWith("/admin/rehearsals"));
+    await waitFor(() => expect(mocks.router.push).toHaveBeenCalledWith("/admin/rehearsals"));
   });
 
   it("删除流：取消确认 → 不调用 remove", () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
     setData([makeRehearsal(1, "2026-08-16T20:00:00", "明天排练")]);
-    render(<AdminRehearsalDetailPage />);
+    render(
+      <AdminPageHeaderProvider>
+        <AdminRehearsalDetailPage />
+      </AdminPageHeaderProvider>,
+    );
     fireEvent.click(screen.getByRole("button", { name: "删除" }));
     expect(confirmSpy).toHaveBeenCalledWith("确定删除该排练？");
     expect(mocks.remove).not.toHaveBeenCalled();
@@ -105,7 +120,11 @@ describe("AdminRehearsalDetailPage（Issue #173：详情页路由）", () => {
 
   it("未找到该排练：空态文案", () => {
     setData([]);
-    render(<AdminRehearsalDetailPage />);
+    render(
+      <AdminPageHeaderProvider>
+        <AdminRehearsalDetailPage />
+      </AdminPageHeaderProvider>,
+    );
     expect(screen.getByText("未找到该排练")).toBeTruthy();
   });
 });
