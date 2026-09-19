@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { FeatureCard } from "./components/FeatureCard";
 import { useAdminPageHeader } from "@/context/admin-page-header-context";
+import { useAdminRealtime } from "@/hooks/useAdminRealtime";
 import {
   UserCheck,
   CalendarCheck,
@@ -63,9 +64,29 @@ export default function AdminHomePage() {
   const [pendingLeaveCount, setPendingLeaveCount] = React.useState(0);
 
   // 并行获取徽章计数
+  const fetchBadges = React.useCallback(async () => {
+    try {
+      const [{ count: approvalCount }, { count: leaveCount }] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select("id", { count: "exact", head: true })
+          .eq("status", "pending"),
+        supabase
+          .from("leave_requests")
+          .select("id", { count: "exact", head: true })
+          .eq("status", "pending"),
+      ]);
+      setPendingApprovalCount(approvalCount ?? 0);
+      setPendingLeaveCount(leaveCount ?? 0);
+      setHeaderLoading(false);
+    } catch {
+      setHeaderLoading(false);
+    }
+  }, [setHeaderLoading]);
+
   React.useEffect(() => {
     let mounted = true;
-    async function fetchBadges() {
+    const fetch = async () => {
       try {
         const [{ count: approvalCount }, { count: leaveCount }] = await Promise.all([
           supabase
@@ -87,13 +108,19 @@ export default function AdminHomePage() {
           setHeaderLoading(false);
         }
       }
-    }
+    };
     setHeaderLoading(true);
-    fetchBadges();
+    fetch();
     return () => {
       mounted = false;
     };
   }, [setHeaderLoading]);
+
+  // Realtime 订阅：收到变更时刷新 badge
+  useAdminRealtime({
+    onLeaveRequestChange: fetchBadges,
+    onProfileChange: fetchBadges,
+  });
 
   const features: FeatureItem[] = [
     {
