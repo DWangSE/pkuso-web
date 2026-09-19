@@ -8,15 +8,23 @@ import { useSearchParams } from "next/navigation";
 import { renderWithProviders } from "@/__tests__/render-with-providers";
 
 // ---- Mock supabase ----
-vi.mock("@/lib/supabase", () => ({
-  supabase: {
-    from: vi.fn(() => ({
-      select: vi.fn(() => ({
-        eq: vi.fn(() => Promise.resolve({ count: 0, error: null })),
+vi.mock("@/lib/supabase", () => {
+  const mockChannel = {
+    on: vi.fn().mockReturnThis(),
+    subscribe: vi.fn(),
+  };
+  return {
+    supabase: {
+      from: vi.fn(() => ({
+        select: vi.fn(() => ({
+          eq: vi.fn(() => Promise.resolve({ count: 0, error: null })),
+        })),
       })),
-    })),
-  },
-}));
+      channel: vi.fn(() => mockChannel),
+      removeChannel: vi.fn(),
+    },
+  };
+});
 
 // ---- Mock next/navigation ----
 const mockPush = vi.fn();
