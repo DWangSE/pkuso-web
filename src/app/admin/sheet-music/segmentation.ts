@@ -1,3 +1,4 @@
+import { MOSAIC_PAGES_PER_CALL } from "./mosaic";
 /**
  * 合订谱分段的纯逻辑（pkuso-web#290 Step 1）。
  *
@@ -24,14 +25,20 @@
 /**
  * 一份合订谱的页数 → 跑分段要几次 OCR。`done` = 已经在手里的页数（重试时不为 0）。
  *
- * ⚠️ 这个数是**下界**：每页在瞬时故障时会重试（次数见 `upload-modal.tsx` 的
- * `OCR_RETRY_DELAYS`，那里才是唯一的定义处），所以真实调用数可以到 N × 尝试次数。
- * 给用户看的数只承诺下界，界面上不要写成「没有别的调用」。
+ * ⚠️ 这是**估算**，不是上界也不是下界：单张拼图装多少页取决于每页窄带的真实大小
+ * （40KB/页与 21KB/页差一倍）。另外每张拼图在瞬时故障时会重试（次数见 `upload-modal.tsx` 的
+ * `OCR_RETRY_DELAYS`），所以真实调用数可能超过它 —— 界面上写的是「约 N 次」，拿它当承诺就是错的。
  */
 export function estimateOcrCalls(pageCount: number, done = 0): number {
   if (!Number.isSafeInteger(pageCount) || pageCount < 1) return 0;
   const missing = pageCount - (Number.isSafeInteger(done) && done > 0 ? done : 0);
-  return missing > 0 ? missing : 0;
+  if (missing <= 0) return 0;
+  // 窄带是**拼图**后一次 OCR（见 `mosaic.ts`）：每张长图装多少页，取决于「页数上限」与
+  // 「700KB 字节预算」**哪条先到**，而每页窄带多大要渲染完才知道。
+  // 所以这里按 `MOSAIC_PAGES_PER_CALL`（两条线里更紧的那条 + 保守每页字节）估 ——
+  // 界面上写「**约** N 次」：它既可能低估（窄带比典型值大）也可能高估（更小），
+  // 拿它当承诺就是错的。`estimateOcrCalls` 的 doc 里写了这段。
+  return Math.ceil(missing / MOSAIC_PAGES_PER_CALL);
 }
 
 /** 一批文件还要跑多少次 OCR —— 导入前给用户看的那个数 */
