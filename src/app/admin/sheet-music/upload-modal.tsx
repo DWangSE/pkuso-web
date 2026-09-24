@@ -234,24 +234,48 @@ function editsOf(f: UploadFile): {
   subPartsUnread?: string;
   subPartsOverCap?: number;
 } {
-  const parsed =
-    f.subPartsEditText !== undefined
+  const section = (f.sectionEdit ?? f.sectionGuess ?? "").trim();
+  // 总谱**没有分声部可言**：它不是「第几号」，而是「整份都在里面」。所以 section 是总谱时
+  // 一律把号当成空 —— 用户填什么、模型猜什么、模型没读懂什么，都不该在这里冒出拦截
+  // （分声部输入框在这个状态下也是禁用的，见渲染处）。
+  const isFullScore = section === FULL_SCORE_SECTION;
+  const parsed = isFullScore
+    ? { value: [] as number[] }
+    : f.subPartsEditText !== undefined
       ? parseSubPartsInput(f.subPartsEditText)
       : { value: f.subPartsGuess ?? [] };
   return {
-    section: (f.sectionEdit ?? f.sectionGuess ?? "").trim(),
+    section,
     instrument: (f.instrumentEdit ?? f.instrumentGuess ?? "").trim(),
     subParts: parsed.value,
-    subPartsInvalid: parsed.invalid,
+    subPartsInvalid: isFullScore ? undefined : parsed.invalid,
     // 「模型给了号、后端没读懂、用户还没表态」—— 见 uploadBlocker 里为什么必须拦。
     // ⚠️ 条件里的 `guess 为空` 不能省：小提琴那类声部会在模型给不出号时用声部推导
     // 补出 [1]/[2]（**同时**带着 subPartsRaw），那种行**有号**，拦下就是误伤。
     subPartsUnread:
-      f.subPartsEditText === undefined && (f.subPartsGuess ?? []).length === 0 && f.subPartsRaw
+      !isFullScore &&
+      f.subPartsEditText === undefined &&
+      (f.subPartsGuess ?? []).length === 0 &&
+      f.subPartsRaw
         ? f.subPartsRaw
         : undefined,
-    subPartsOverCap: f.subPartsOverCap,
+    subPartsOverCap: isFullScore ? undefined : f.subPartsOverCap,
   };
+}
+
+/**
+ * 这一行现在是不是总谱。取值**只走 editsOf**（与落库、文件名、拦截、分段资格同一条判据）。
+ *
+ * ⚠️ **必须放在模块作用域**，不能放进组件体：`segEligible`（组件体里更早的位置）要调它，
+ * 而 `segTargets` 是渲染期立即求值的语句 —— 声明在使用点**之后**的 `const` 会在那一刻
+ * 撞上 TDZ，`ReferenceError: Cannot access 'isFullScoreRow' before initialization`，
+ * **选完文件整个弹窗就崩**。这种错 `tsc` 报不出来（嵌套闭包里的调用序它不判）、
+ * 纯模块测试也测不到（这个组件在仓库里没有渲染测试）。
+ */
+function isFullScoreRow(f: UploadFile): boolean {
+  // 走 editsOf 而不是抄一遍 `(sectionEdit ?? sectionGuess).trim()`：同文件里已经栽过
+  // 一次「三处各抄一份推导式」的跟头，总谱这条判据只能有一份。
+  return editsOf(f).section === FULL_SCORE_SECTION;
 }
 
 /**
@@ -1273,10 +1297,9 @@ export function UploadModal({ open, onClose, scoreId, onUploaded }: UploadModalP
     f.status !== "done" &&
     // **已经切出来的段不算**：它们是产物不是源，对一段再跑分段没有意义
     !f.splitOf &&
-    needsSegmentation(
-      f.pageCount ?? null,
-      (f.sectionEdit ?? f.sectionGuess ?? "").trim() === FULL_SCORE_SECTION,
-    );
+    // 「是不是总谱」只认一个判据（`isFullScoreRow` 走 editsOf）—— 同文件里已经栽过
+    // 一次「三处各抄一份推导式」的跟头，不再抄第二份
+    needsSegmentation(f.pageCount ?? null, isFullScoreRow(f));
 
   /**
    * 真正会跑的判据：合格、**且还没跑过**。
@@ -1355,6 +1378,15 @@ export function UploadModal({ open, onClose, scoreId, onUploaded }: UploadModalP
 
   /** 界面上显示的段（由起点页推出闭区间）。用户改过起点就按改过的算 */
   const segmentsOf = (f: UploadFile) => normalizeSegments(f.segmentStarts ?? [1], f.pageCount ?? 1);
+
+  /**
+   * **识别出多段、却还没拆** —— 界面上「确认这 N 段」按钮的显示条件，也是上传时
+   * 拦下这一行的条件。**必须是同一个函数**：分成两份写的时候，上传那侧漏掉 `segEligible`
+   * 就会造出一个死胡同 —— 跑完分段后把声部改成总谱，分段块整块不渲染（`segEligible` 为假），
+   * 而拦截还在，文案指着两个**屏幕上不存在**的按钮。实测过这条路径。
+   */
+  const unsplitSegments = (f: UploadFile) =>
+    segEligible(f) && segmentsOf(f).length > 1 && !f.splitOf;
 
   /** 段的起点数组（界面上编辑的那个），带兜底 */
   const startsOf = (f: UploadFile) => f.segmentStarts ?? [1];
@@ -1460,7 +1492,7 @@ export function UploadModal({ open, onClose, scoreId, onUploaded }: UploadModalP
   /**
    * **按段拆成多行**（#290 Step 2 的入口）。
    *
-   * 拆完之后每一段各占一行、各有各的声部/乐器/号，文件名各自生成（`圆号_1.pdf`），
+   * 拆完之后每一段各占一行、各有各的声部/乐器/号，文件名各自生成（`圆号1.pdf`），
    * 上传时源文件只读一次、逐段切出来各传各的。
    *
    * 号按**位置**预填（第 k 段 ↔ 第 k 个号）—— 这是文件名给的最强信号，
@@ -1603,6 +1635,19 @@ export function UploadModal({ open, onClose, scoreId, onUploaded }: UploadModalP
   };
 
   const handleSectionChange = (index: number, value: string) => {
+    // 选成总谱 = 「整份都在里面」：乐器名与分声部都跟着定下来，不该再让用户填两个
+    // 说不通的东西（总谱没有「第几号」）。切回别的声部时不动它们 —— 用户可以用那个
+    // 「重置为识别结果」的 X 回到模型给的值。
+    if (value === FULL_SCORE_SECTION) {
+      updateFile(index, {
+        sectionEdit: value,
+        instrumentEdit: FULL_SCORE_SECTION,
+        // 空串是**显式表态**「没有号」（与「没编辑过」不同），editsOf 会据此给出 `[]`
+        subPartsEditText: "",
+        error: undefined,
+      });
+      return;
+    }
     updateFile(index, { sectionEdit: value, error: undefined });
   };
 
@@ -1732,6 +1777,24 @@ export function UploadModal({ open, onClose, scoreId, onUploaded }: UploadModalP
             updateFile(i, { error: blocker });
             return false;
           }
+
+          // **分了段却没拆**就上传 = 悄悄只传一份出去，而屏幕上明明写着「共 N 段」——
+          // 用户看到的分段结果等于白做。两条出路都写进文案里：拆开，或者合并成一段
+          // （合并 = 「这本来就是一份」，那正是他不同意模型时的表达方式）。
+          //
+          // ⚠️ 判据必须与**解除这个拦截的条件**同源：`segEligible` 为假的行（总谱、单页、
+          // 已 done）根本不渲染分段块，也就没有「确认这 N 段」「合并」可按 —— 拦下它就等于
+          // 把那一行锁死。实测过这条路径：跑完分段再把声部改成总谱 → 分段块消失、拦截还在，
+          // 唯一出路是改回声部或关窗重来（而「先跑分段、看段数再标总谱」正是人工标记的主用法）。
+          if (unsplitSegments(uploadFile)) {
+            const segCount = segmentsOf(uploadFile).length;
+            updateFile(i, {
+              error:
+                `这份谱识别出 ${segCount} 段 —— 请先点「确认这 ${segCount} 段」逐段确认；` +
+                `如果它其实是一份，用「合并」把段并成一段`,
+            });
+            return false;
+          }
           // 这一行能往下走了，把上一次的拦截/失败提示清掉，免得文案留在界面上说谎
           updateFile(i, { error: undefined, status: "uploading" });
 
@@ -1807,7 +1870,7 @@ export function UploadModal({ open, onClose, scoreId, onUploaded }: UploadModalP
            * 闭包快照**，那一整个表达式恒为真 —— 于是「第 1 段传成功、第 2 段上传时断网」
            * 会把 4 段全标成失败，用户重试后第 1 段**又插一行** `sheet_music_files`
            * （同一个 storage 对象挂两行，详情页出现两份同名文件）。
-           * 实测过：重试后 `圆号_1.pdf` 确实出现两行。
+           * 实测过：重试后 `圆号_1.pdf`（当时的格式）确实出现两行。
            */
           const uploaded = new Set<number>();
           try {
@@ -2176,10 +2239,19 @@ export function UploadModal({ open, onClose, scoreId, onUploaded }: UploadModalP
                             </label>
                             <input
                               type="text"
-                              value={f.subPartsEditText ?? formatSubParts(f.subPartsGuess ?? [])}
+                              // 总谱没有「第几号」：框里直接显示「总谱」并禁用，
+                              // 比留一个填什么都说不通的输入框清楚
+                              value={
+                                isFullScoreRow(f)
+                                  ? FULL_SCORE_SECTION
+                                  : (f.subPartsEditText ?? formatSubParts(f.subPartsGuess ?? []))
+                              }
                               onChange={(e) => handleSubPartsChange(i, e.target.value)}
                               placeholder="号，如 1,2"
-                              disabled={phase === "uploading"}
+                              disabled={phase === "uploading" || isFullScoreRow(f)}
+                              title={
+                                isFullScoreRow(f) ? "总谱是整份，没有分声部号" : "分声部号，如 1,2"
+                              }
                               className="px-1.5 py-0.5 text-sm bg-muted border border-border rounded w-16 shrink-0 disabled:opacity-50"
                             />
                             {/* 「没有号」——**逃生口**，只在模型给了号却没读懂时出现。
@@ -2363,9 +2435,12 @@ export function UploadModal({ open, onClose, scoreId, onUploaded }: UploadModalP
                                   各有各的乐器/号，上传时源文件只读一次、逐段切出来各传各的。
                                   放在这里（而不是上传时才切）是因为**每一段都要人工确认乐器
                                   与号** —— 那是拆完之后才看得见的东西。 */}
-                              {f.segState === "done" && segmentsOf(f).length > 1 && (
+                              {unsplitSegments(f) && (
                                 <button
                                   onClick={() => splitIntoSegments(i)}
+                                  // ⚠️ 这个按钮是**必经之路**，不是可选项：不点它就上传会被
+                                  // 拦下（见 uploadOne 里的同源判据），因为「共 N 段」而传出去
+                                  // 一份，等于把用户确认过的分段结果整个丢掉。
                                   // ⚠️ `segBusy` 不能漏：拆分**会改变 files 的长度**，而分段
                                   // 的 worker 手里攥着点击那一刻的下标 —— 两份合订谱一起跑时，
                                   // 先跑完的那份被拆开，另一份的结果就会写进**它的某一段**，
@@ -2375,7 +2450,7 @@ export function UploadModal({ open, onClose, scoreId, onUploaded }: UploadModalP
                                   className="px-2 py-0.5 text-xs border border-border rounded shrink-0 hover:text-primary disabled:opacity-50"
                                   title="按这些边界把文件拆成多行，逐段确认乐器与分声部号；上传时自动切开，不会重复 OCR"
                                 >
-                                  按这 {segmentsOf(f).length} 段拆分
+                                  确认这 {segmentsOf(f).length} 段
                                 </button>
                               )}
                             </div>
